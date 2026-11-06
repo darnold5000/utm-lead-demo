@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useDemo } from "@/components/demo-provider"
 import { Button } from "@/components/ui/button"
 import { getCampaignBySlug } from "@/lib/campaigns"
 import { validateContact } from "@/lib/form"
-import { formatMoney, leadName } from "@/lib/format"
+import { formatMoney, formatTimestamp, leadName, shortId } from "@/lib/format"
 import { isSource, SOURCE_META, STATUS_META, mediumFor } from "@/lib/labels"
 import type { LeadStatus } from "@/lib/types"
 import { parameterRows } from "@/lib/utm"
@@ -50,8 +50,26 @@ export function LandingView() {
   const [errors, setErrors] = useState<{ name?: string; email?: string; phone?: string }>({})
   const [createdId, setCreatedId] = useState<string | null>(null)
   const [submits, setSubmits] = useState(0)
+  const arrivalId = searchParams.get("sw_arrival")
 
-  const fromSimulator = searchParams.get("from") === "simulator"
+  useEffect(() => {
+    if (!campaign || !arrivalId) return
+    const rawSource = searchParams.get("utm_source")
+    const visitSource = isSource(rawSource) ? rawSource : campaign.source
+    demo.recordArrival({
+      id: arrivalId,
+      campaignId: campaign.id,
+      source: visitSource,
+      landingPath: `/lp/${campaign.slug}`,
+      utm: {
+        source: rawSource || visitSource,
+        medium: searchParams.get("utm_medium") || mediumFor(visitSource),
+        campaign: searchParams.get("utm_campaign") || campaign.utmCampaign,
+        content: searchParams.get("utm_content") || campaign.utmContent,
+        term: searchParams.get("utm_term"),
+      },
+    })
+  }, [arrivalId, campaign, demo, searchParams])
 
   if (!campaign) {
     return (
@@ -75,6 +93,9 @@ export function LandingView() {
     term: searchParams.get("utm_term"),
   }
   const created = demo.state.leads.find((lead) => lead.id === createdId) ?? null
+  const recorded = arrivalId
+    ? demo.state.arrivals.find((arrival) => arrival.id === arrivalId) ?? null
+    : null
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -83,10 +104,11 @@ export function LandingView() {
     setErrors(result.errors)
     if (!result.valid) return
 
-    const countVisit = !(fromSimulator && submits === 0)
+    const countVisit = !recorded && submits === 0
     const id = `live-${crypto.randomUUID()}`
     demo.addFormLead({
       id,
+      sessionId: recorded?.id ?? null,
       firstName: result.firstName,
       lastName: result.lastName,
       email: email.trim(),
@@ -135,12 +157,17 @@ export function LandingView() {
             ))}
           </ul>
           <div className={cn("rounded-xl p-4", theme.panel)}>
-            <p className="text-xs font-semibold tracking-wide uppercase">Read from this link</p>
+            <p className="text-xs font-semibold tracking-wide uppercase">Captured automatically</p>
             <p className={cn("mt-1 text-sm", theme.muted)}>
-              {fromSimulator
-                ? "The ad click was counted as a visit. Submitting the form creates the lead."
-                : "Submitting the form counts a visit and creates the lead."}
+              {recorded
+                ? `Anonymous session ${shortId(recorded.id)} was recorded at ${formatTimestamp(recorded.at)}. No form was required.`
+                : "This sample page reads the campaign parameters on the link. An ad click records the visit once."}
             </p>
+            {recorded ? (
+              <p className={cn("mt-2 text-sm", theme.muted)}>
+                Landing page {recorded.landingPath}. Refreshing this page does not count another visit.
+              </p>
+            ) : null}
             <dl className="mt-3 grid gap-2 sm:grid-cols-2">
               {parameterRows(utm).map((row) => (
                 <div key={row.name}>
@@ -149,6 +176,13 @@ export function LandingView() {
                 </div>
               ))}
             </dl>
+            <button
+              type="button"
+              className={cn("mt-4 h-11 rounded-lg px-4 text-sm font-semibold", theme.accent)}
+              onClick={() => router.push("/")}
+            >
+              View the visit on the dashboard
+            </button>
           </div>
         </div>
 
@@ -193,8 +227,11 @@ export function LandingView() {
           ) : (
             <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
               <div>
+                <p className="text-xs font-semibold tracking-wide text-[#5c6370] uppercase">Optional</p>
                 <h2 className="text-xl font-semibold">{campaign.cta}</h2>
-                <p className="mt-1 text-sm text-[#5c6370]">Demo form. Nothing is emailed or stored on a server.</p>
+                <p className="mt-1 text-sm text-[#5c6370]">
+                  The visit is already counted. This form only turns the anonymous session into a lead. Nothing is emailed.
+                </p>
               </div>
               <Field label="Full name" error={errors.name}>
                 <input

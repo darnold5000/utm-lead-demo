@@ -71,3 +71,16 @@ export function addDays(day: string, delta: number) {
 export function leadName(lead: { firstName: string; lastName: string }) {
   return `${lead.firstName} ${lead.lastName}`
 }
+
+export function formatTimestamp(iso: string) {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+export function shortId(id: string) {
+  return id.replace(/^visit-/, "").slice(0, 8)
+}

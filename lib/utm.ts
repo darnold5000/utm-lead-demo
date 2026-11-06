@@ -1,4 +1,4 @@
-import { getCampaign } from "@/lib/campaigns"
+import { getCampaign, isCampaignId } from "@/lib/campaigns"
 import { mediumFor } from "@/lib/labels"
 import type { Campaign, Lead, Source, Utm } from "@/lib/types"
 
@@ -29,24 +29,24 @@ export function absoluteUrl(origin: string, path: string) {
 }
 
 export function leadPath(lead: Lead) {
-  const campaign = getCampaign(lead.campaignId)
   const params = new URLSearchParams({
     utm_source: lead.utm.source,
     utm_medium: lead.utm.medium,
     utm_campaign: lead.utm.campaign,
-    utm_content: lead.utm.content,
   })
+  if (lead.utm.content) params.set("utm_content", lead.utm.content)
   if (lead.utm.term) params.set("utm_term", lead.utm.term)
-  return `/lp/${campaign.slug}?${params.toString()}`
+  if (isCampaignId(lead.campaignId)) return `/lp/${getCampaign(lead.campaignId).slug}?${params.toString()}`
+  return `/visit?${params.toString()}`
 }
 
 export function parameterRows(utm: Utm) {
   const rows = [
     { name: "utm_source", value: utm.source },
     { name: "utm_medium", value: utm.medium },
-    { name: "utm_campaign", value: utm.campaign },
-    { name: "utm_content", value: utm.content },
   ]
+  if (utm.campaign) rows.push({ name: "utm_campaign", value: utm.campaign })
+  if (utm.content) rows.push({ name: "utm_content", value: utm.content })
   if (utm.term) rows.push({ name: "utm_term", value: utm.term })
   return rows
 }

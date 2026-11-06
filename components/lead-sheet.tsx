@@ -10,9 +10,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { getCampaign } from "@/lib/campaigns"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { formatDay, formatMoney, leadName } from "@/lib/format"
 import { SOURCE_META, STATUS_META } from "@/lib/labels"
+import { campaignDetail } from "@/lib/traffic"
 import type { LeadStatus } from "@/lib/types"
 import { leadPath, parameterRows } from "@/lib/utm"
 
@@ -23,7 +25,7 @@ export function LeadSheet() {
   const lead = demo.state.leads.find((item) => item.id === demo.state.openLeadId) ?? null
   const origin = useOrigin()
 
-  const campaign = lead ? getCampaign(lead.campaignId) : null
+  const campaign = lead ? campaignDetail(demo.state.links, lead.campaignId) : null
 
   return (
     <Sheet
@@ -67,8 +69,21 @@ export function LeadSheet() {
                   <dd className="font-medium">{formatDay(lead.day)}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Customer value</dt>
-                  <dd className="font-medium tabular-nums">{formatMoney(lead.value)}</dd>
+                  <Label htmlFor="lead-value">Customer value</Label>
+                  <Input
+                    id="lead-value"
+                    key={`${lead.id}-${lead.value}`}
+                    className="mt-1"
+                    inputMode="numeric"
+                    defaultValue={lead.value}
+                    onBlur={(event) => {
+                      const amount = Number(event.target.value)
+                      if (event.target.value.trim() && Number.isFinite(amount)) demo.setLeadValue(lead.id, amount)
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatMoney(lead.value)} is included only while this person is a paying customer.
+                  </p>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Traffic source</dt>

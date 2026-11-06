@@ -4,17 +4,25 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { DemoControls } from "@/components/demo-controls"
+import { useDemo } from "@/components/demo-provider"
 import { LeadSheet } from "@/components/lead-sheet"
+import { showSimulationControls } from "@/lib/demo-mode"
+import { shortId } from "@/lib/format"
+import { SOURCE_META } from "@/lib/labels"
+import { campaignTitle } from "@/lib/traffic"
 import { cn } from "cn"
 
 const NAV = [
   { href: "/", label: "Dashboard" },
+  { href: "/links", label: "Links" },
   { href: "/simulator", label: "Simulator" },
   { href: "/leads", label: "Leads" },
-]
+].filter((item) => showSimulationControls || item.href !== "/simulator")
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
+  const { state } = useDemo()
+  const session = state.arrivals.find((arrival) => arrival.id === state.activeSessionId) ?? null
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -27,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
               <span>
                 <span className="block text-sm font-semibold leading-tight">Signal Works Digital</span>
-                <span className="block text-xs text-white/60">UTM lead tracking</span>
+                <span className="block text-xs text-white/60">Campaign tracking</span>
               </span>
             </Link>
             <nav className="flex flex-wrap items-center gap-1" aria-label="Demo">
@@ -53,8 +61,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
         </header>
-        <DemoControls />
+        {showSimulationControls ? <DemoControls /> : null}
       </div>
+      {session ? (
+        <p className="border-b bg-white px-4 py-2 text-sm text-[#3d4d66] md:px-6">
+          Anonymous session <span className="font-mono">{shortId(session.id)}</span> stays attributed to{" "}
+          {SOURCE_META[session.source].label} · {campaignTitle(state.links, session.campaignId)} while you move between these pages.
+        </p>
+      ) : null}
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6">{children}</main>
       <footer className="border-t bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">

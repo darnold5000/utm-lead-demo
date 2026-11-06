@@ -19,14 +19,16 @@ import {
 import { BUSINESSES, CAMPAIGNS, getCampaign, isCampaignId } from "@/lib/campaigns"
 import { SOURCE_META, SOURCES, JOURNEY_RANK } from "@/lib/labels"
 import type { CampaignId, JourneyStage, Source } from "@/lib/types"
+import { AttributionFlow } from "@/components/attribution-flow"
+import { showSimulationControls } from "@/lib/demo-mode"
 import { parameterRows, trackingPath, utmFor } from "@/lib/utm"
 import { cn } from "cn"
 
 const STAGES: { id: JourneyStage; title: string; detail: string }[] = [
   { id: "ad", title: "Ad", detail: "Choose the source and campaign" },
-  { id: "visit", title: "Website visit", detail: "The click lands with UTM tags" },
-  { id: "form", title: "Contact form", detail: "The sample landing page" },
-  { id: "lead", title: "New lead", detail: "The form keeps the campaign" },
+  { id: "visit", title: "Website visit", detail: "UTMs are captured with no form" },
+  { id: "form", title: "Contact form", detail: "Optional. Turns a session into a lead" },
+  { id: "lead", title: "New lead", detail: "The same campaign stays attached" },
   { id: "booked", title: "Booked", detail: "An appointment on the calendar" },
   { id: "customer", title: "Paying customer", detail: "Revenue joins that same click" },
 ]
@@ -56,9 +58,8 @@ export function SimulatorView() {
   }
 
   function simulateClick() {
-    demo.simulateVisit()
-    demo.markJourney("form")
-    router.push(`${path}&from=simulator`)
+    const arrivalId = crypto.randomUUID()
+    router.push(`${path}&sw_arrival=${arrivalId}`)
   }
 
   return (
@@ -66,9 +67,13 @@ export function SimulatorView() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Campaign simulator</h1>
         <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          Walk a business owner from the ad they paid for to a person who paid them. The whole path
-          fits in about two minutes. Every name and dollar amount is demo data.
+          Choose an ad, open the landing page, and the visit is attributed before anyone fills out
+          a form. Every name and dollar amount is simulated demo data.
         </p>
+      </div>
+
+      <div className="rounded-xl border bg-white p-4">
+        <AttributionFlow />
       </div>
 
       <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
@@ -176,10 +181,12 @@ export function SimulatorView() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="lg" onClick={simulateClick}>
-                <MousePointerClick />
-                Simulate Ad Click
-              </Button>
+              {showSimulationControls ? (
+                <Button type="button" size="lg" onClick={simulateClick}>
+                  <MousePointerClick />
+                  Simulate Ad Click
+                </Button>
+              ) : null}
               <Button type="button" size="lg" variant="outline" onClick={copyUrl}>
                 {copied ? "Copied" : "Copy URL"}
               </Button>
@@ -194,14 +201,14 @@ export function SimulatorView() {
           </CardHeader>
           <CardContent>
             <ol className="grid gap-3 text-sm">
-              <li><span className="font-medium">1.</span> Pick Facebook and 6-Week Shred. Show the tagged URL.</li>
-              <li><span className="font-medium">2.</span> Simulate the ad click. The sample site opens.</li>
-              <li><span className="font-medium">3.</span> Submit the contact form with any name.</li>
-              <li><span className="font-medium">4.</span> Open the dashboard. The new lead carries the campaign.</li>
-              <li><span className="font-medium">5.</span> Mark them booked, then a paying customer. Revenue moves. Clicks did not.</li>
+              <li><span className="font-medium">1.</span> Pick Facebook, Instagram, or Google, and a sample campaign.</li>
+              <li><span className="font-medium">2.</span> Click Simulate Ad Click. The landing page opens with UTM parameters.</li>
+              <li><span className="font-medium">3.</span> The visit is recorded immediately. Leave the form blank.</li>
+              <li><span className="font-medium">4.</span> Return to the dashboard. The visit belongs to that campaign.</li>
+              <li><span className="font-medium">5.</span> Optional: submit the form later to turn that anonymous session into a lead.</li>
             </ol>
             <p className="mt-4 text-xs text-muted-foreground">
-              {campaign.businessName} spends a sample {campaign.spend.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} on this campaign. That budget stays fixed while you add visits and leads.
+              Each click adds a one-time arrival id. Refreshing that page, or moving to the dashboard, does not count the visit again. Sample ad spend for {campaign.businessName} stays fixed at {campaign.spend.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}.
             </p>
           </CardContent>
         </Card>

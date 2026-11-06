@@ -1,6 +1,6 @@
 # UTM Lead Tracking Demo
 
-Sales walkthrough for Signal Works Digital. It shows how a tagged ad link becomes a lead, an appointment, and a paying customer. Every number is fictional. There is no database, login, or live ad account.
+Sales walkthrough for Signal Works Digital. A simulated ad click records an anonymous visit from the landing-page URL. A contact form is optional and turns that session into a lead. Every number is fictional. There is no database, login, or live ad account.
 
 ## Run
 
@@ -13,10 +13,10 @@ Open [http://localhost:3000](http://localhost:3000). Deploy the Next.js app on V
 
 ## Two-minute path
 
-1. Open **Simulator**. Choose Facebook and 6-Week Shred. Show the UTM link.
-2. Click **Simulate Ad Click** and submit the sample contact form.
-3. Open **Dashboard**. The new lead is attributed to that campaign, and the totals moved.
-4. Set the lead to **Booked**, then **Customer**. Appointments and attributed revenue update.
-5. Use the presenter bar to switch campaigns, add a visit, add a lead, convert someone, or **Reset Demo**.
+1. Open **Dashboard**. Content performance shows three simulated Athletes Performance Center Facebook posts. Get Faster Before Tryouts is highlighted because it produced the most customers.
+2. Copy a post link or click **Simulate visit**. That post’s visit count increases by one. Refreshing the same visit does not count again.
+3. Open **Links** to add another headline under Softball Training. Each post gets its own `utm_content` value.
+4. Optional: submit the visit form, mark the lead a customer, and enter a sample amount.
+5. Open **Simulator** for the original paid-ad sample. Use **Reset Demo** to restore the sample dataset.
 
 Search engines are blocked (`noindex, nofollow`). This demo is not a live client site.

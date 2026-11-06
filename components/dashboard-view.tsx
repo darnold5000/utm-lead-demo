@@ -1,9 +1,19 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import Link from "next/link"
+import { AttributionFlow } from "@/components/attribution-flow"
+import { ContentPerformance } from "@/components/content-performance"
 import { useDemo } from "@/components/demo-provider"
 import { ConversionChart, SourceChart, TrafficChart } from "@/components/charts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -13,33 +23,82 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { getCampaign } from "@/lib/campaigns"
+import { CAMPAIGNS, isCampaignId } from "@/lib/campaigns"
 import {
+  addDays,
   formatMoney,
   formatMoneyCents,
   formatNumber,
   formatPercent,
   formatRoas,
+  formatTimestamp,
   leadName,
+  localDay,
+  shortId,
 } from "@/lib/format"
 import { SOURCE_META, STATUS_META } from "@/lib/labels"
-import { campaignStats, seriesFor, summarize, visibleLeads } from "@/lib/metrics"
+import { campaignStats, channelSplit, landingPages, seriesFor, summarize, visibleArrivals, visibleLeads } from "@/lib/metrics"
+import { campaignTitle } from "@/lib/traffic"
+import type { Source } from "@/lib/types"
 import { cn } from "cn"
+
+const RANGE_OPTIONS = [
+  { id: "all", label: "All dates" },
+  { id: "7", label: "Last 7 days" },
+  { id: "14", label: "Last 14 days" },
+  { id: "today", label: "Today" },
+] as const
 
 export function DashboardView() {
   const { state, openLead } = useDemo()
+  const [sourceFilter, setSourceFilter] = useState<"all" | Source>("all")
+  const [campaignFilter, setCampaignFilter] = useState("all")
+  const [range, setRange] = useState<(typeof RANGE_OPTIONS)[number]["id"]>("all")
+  const from =
+    range === "all" ? null : range === "today" ? localDay() : addDays(localDay(), range === "7" ? -6 : -13)
+  const buckets = state.buckets.filter(
+    (bucket) => (sourceFilter === "all" || bucket.source === sourceFilter) && (from == null || bucket.day >= from),
+  )
+  const leads = state.leads.filter(
+    (lead) => (sourceFilter === "all" || lead.source === sourceFilter) && (from == null || lead.day >= from),
+  )
+  const arrivals = state.arrivals.filter(
+    (arrival) =>
+      (sourceFilter === "all" || arrival.source === sourceFilter) && (from == null || arrival.day >= from),
+  )
+  const focus = campaignFilter !== "all" ? campaignFilter : state.view
   const stats = useMemo(
-    () => campaignStats(state.buckets, state.leads),
-    [state.buckets, state.leads],
+    () => campaignStats(buckets, leads, state.links),
+    [buckets, leads, state.links],
   )
-  const totals = useMemo(() => summarize(stats, state.view), [stats, state.view])
+  const totals = useMemo(() => summarize(stats, focus), [stats, focus])
   const series = useMemo(
-    () => seriesFor(state.buckets, state.leads, state.view),
-    [state.buckets, state.leads, state.view],
+    () => seriesFor(buckets, leads, state.links, focus),
+    [buckets, leads, state.links, focus],
   )
-  const recent = visibleLeads(state.leads, state.view).slice(0, 5)
+  const split = channelSplit(buckets, state.links, focus)
+  const recent = visibleLeads(leads, focus).slice(0, 5)
+  const liveArrivals = visibleArrivals(arrivals, focus)
+  const pages = landingPages(buckets, arrivals, state.links, focus)
+  const filtering = sourceFilter !== "all" || range !== "all" || campaignFilter !== "all"
+  const contentIds = new Set(state.links.filter((link) => link.headline?.trim()).map((link) => link.id))
+  const tableRows = stats.filter((row) => {
+    if (contentIds.has(row.id)) return false
+    if (campaignFilter !== "all" && row.id !== campaignFilter) return false
+    const saved = state.links.some((link) => link.id === row.id)
+    if (!filtering) return isCampaignId(row.id) || saved || row.visitors > 0 || row.leads > 0
+    return row.visitors > 0 || row.leads > 0 || row.id === focus
+  })
+  const tableTotals = useMemo(() => summarize(tableRows, "all"), [tableRows])
   const highlighted = state.leads.find((lead) => lead.id === state.highlightLeadId) ?? null
-  const viewName = state.view === "all" ? "All campaigns" : getCampaign(state.view).name
+  const viewName = focus === "all" ? "All campaigns" : campaignTitle(state.links, focus)
+  const sourceItems: Record<string, string> = { all: "All sources" }
+  for (const source of Object.keys(SOURCE_META)) sourceItems[source] = SOURCE_META[source as Source].label
+  const campaignItems: Record<string, string> = { all: "All campaigns" }
+  for (const campaign of CAMPAIGNS) campaignItems[campaign.id] = campaign.shortName
+  for (const link of state.links) {
+    if (!link.headline?.trim()) campaignItems[link.id] = link.name
+  }
   const funnel = [
     { label: "Website visitors", value: totals.visitors, hint: "Everyone who hit the site" },
     { label: "Leads", value: totals.leads, hint: "Submitted a contact form" },
@@ -53,10 +112,131 @@ export function DashboardView() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Campaign dashboard</h1>
         <p className="max-w-3xl text-sm text-muted-foreground md:text-base">
-          {viewName}. These figures are fictional and internally consistent. A visit is not a
-          customer until the lead status says so. Revenue is the sum of paying customers only.
+          {viewName}. Simulated data. A visit is attributed as soon as the page reads UTM parameters,
+          or from the referrer when those parameters are missing. A name and revenue still require a lead.
         </p>
       </div>
+
+      <ContentPerformance links={state.links} buckets={state.buckets} leads={state.leads} />
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Filter label="Source">
+          <Select
+            value={sourceFilter}
+            items={sourceItems}
+            onValueChange={(value) => {
+              if (value === "all" || (value != null && value in SOURCE_META)) setSourceFilter(value as "all" | Source)
+            }}
+          >
+            <SelectTrigger className="w-full bg-white" aria-label="Filter by source">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sources</SelectItem>
+              {(Object.keys(SOURCE_META) as Source[]).map((source) => (
+                <SelectItem key={source} value={source}>
+                  {SOURCE_META[source].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Filter>
+        <Filter label="Campaign">
+          <Select
+            value={campaignFilter}
+            items={campaignItems}
+            onValueChange={(value) => {
+              if (value) setCampaignFilter(value)
+            }}
+          >
+            <SelectTrigger className="w-full bg-white" aria-label="Filter by campaign">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All campaigns</SelectItem>
+              {CAMPAIGNS.map((campaign) => (
+                <SelectItem key={campaign.id} value={campaign.id}>
+                  {campaign.shortName}
+                </SelectItem>
+              ))}
+              {state.links.filter((link) => !link.headline?.trim()).map((link) => (
+                <SelectItem key={link.id} value={link.id}>
+                  {link.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Filter>
+        <Filter label="Date">
+          <div className="flex flex-wrap gap-1">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setRange(option.id)}
+                className={cn(
+                  "rounded-md px-2 py-1 text-sm font-medium",
+                  range === option.id ? "bg-[#0057ff] text-white" : "bg-white text-[#3d4d66] ring-1 ring-foreground/10",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Filter>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>How attribution works</CardTitle>
+          <CardDescription>All of these figures are simulated.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttributionFlow />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Live arrivals</CardTitle>
+          <CardDescription>
+            {formatNumber(totals.visitors)} visitors in this view, counted as {formatNumber(totals.visitors)} sessions. The sample history counts each visit as one session. Refreshing a simulated visit does not add another.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+          {liveArrivals.length === 0 ? (
+            <p className="px-4 text-sm text-muted-foreground">
+              No live arrivals yet. Visits show up here when a tracked link is opened.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Campaign</TableHead>
+                  <TableHead>Landing page</TableHead>
+                  <TableHead>Arrived</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {liveArrivals.slice(0, 8).map((arrival) => (
+                  <TableRow
+                    key={arrival.id}
+                    className={cn(arrival.id === state.activeSessionId && "bg-[#e8f0ff]")}
+                  >
+                    <TableCell className="font-mono text-xs">{shortId(arrival.id)}</TableCell>
+                    <TableCell>{SOURCE_META[arrival.source].label}</TableCell>
+                    <TableCell>{campaignTitle(state.links, arrival.campaignId)}</TableCell>
+                    <TableCell className="font-mono text-xs">{arrival.landingPath}</TableCell>
+                    <TableCell>{formatTimestamp(arrival.at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {highlighted ? (
         <button
@@ -67,19 +247,40 @@ export function DashboardView() {
           <p className="text-xs font-semibold tracking-wide text-[#0046cc] uppercase">Latest attributed lead</p>
           <p className="mt-1 text-sm font-medium">
             {leadName(highlighted)} · {SOURCE_META[highlighted.source].label} ·{" "}
-            {getCampaign(highlighted.campaignId).shortName} · {STATUS_META[highlighted.status].label} ·{" "}
+            {campaignTitle(state.links, highlighted.campaignId)} · {STATUS_META[highlighted.status].label} ·{" "}
             {formatMoney(highlighted.value)}
           </p>
         </button>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Website visitors" value={formatNumber(totals.visitors)} hint="Ad clicks that landed" />
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi label="Website visitors" value={formatNumber(totals.visitors)} hint="Demo data" />
+        <Kpi label="Sessions" value={formatNumber(totals.visitors)} hint="One session per counted visit" />
         <Kpi label="Leads generated" value={formatNumber(totals.leads)} hint="Forms tied to a campaign" />
         <Kpi label="Conversion rate" value={formatPercent(totals.leadRate)} hint="Visits that became leads" />
         <Kpi label="Appointments booked" value={formatNumber(totals.appointments)} hint="Booked plus paying" />
         <Kpi label="Customers acquired" value={formatNumber(totals.customers)} hint="Status is paying customer" />
         <Kpi label="Attributed revenue" value={formatMoney(totals.revenue)} hint="Paying customers only" />
+        <Kpi label="Paid ROAS" value={formatRoas(totals.roas)} hint="Campaigns with recorded ad spend" />
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2">
+        <Card>
+          <CardContent className="flex flex-col gap-1">
+            <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Paid traffic</p>
+            <p className="text-2xl font-semibold tabular-nums">{formatNumber(split.paid)}</p>
+            <p className="text-xs text-muted-foreground">Sample ads and links marked as paid ads.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex flex-col gap-1">
+            <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Unpaid traffic</p>
+            <p className="text-2xl font-semibold tabular-nums">{formatNumber(split.unpaid)}</p>
+            <p className="text-xs text-muted-foreground">
+              Organic posts, email, texts, QR codes, referrals, and direct visits. No advertising ROI.
+            </p>
+          </CardContent>
+        </Card>
       </section>
 
       <Card>
@@ -145,9 +346,9 @@ export function DashboardView() {
         <CardHeader>
           <CardTitle>Leads and customers</CardTitle>
           <CardDescription>
-            {state.view === "all"
-              ? "Every sample campaign. Customers are the leads marked paying."
-              : `${viewName} only. Switch the presenter control to compare the rest.`}
+            {focus === "all"
+              ? "Campaigns with visitors or leads. Customers are the leads marked paying."
+              : `${viewName} only.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -159,7 +360,7 @@ export function DashboardView() {
         <CardHeader>
           <CardTitle>Campaign comparison</CardTitle>
           <CardDescription>
-            Every sample campaign stays in this table so you can compare them. Ad spend is a fixed sample budget. Cost per lead is spend divided by leads. Return on ad spend is revenue divided by spend.
+            Paid rows can show return on ad spend. Unpaid rows keep visitors, leads, and revenue, and leave ROAS blank.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -171,6 +372,7 @@ export function DashboardView() {
                 <TableHead className="text-right">Visitors</TableHead>
                 <TableHead className="text-right">Leads</TableHead>
                 <TableHead className="text-right">Customers</TableHead>
+                <TableHead className="text-right">Conversion rate</TableHead>
                 <TableHead className="text-right">Ad spend</TableHead>
                 <TableHead className="text-right">Cost per lead</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
@@ -178,20 +380,31 @@ export function DashboardView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {stats.map((row) => {
-                const campaign = getCampaign(row.id)
-                const active = state.view === row.id
+              {tableRows.map((row) => {
+                const saved = state.links.some((link) => link.id === row.id)
+                const active = focus === row.id
                 return (
                   <TableRow key={row.id} className={cn(active && "bg-[#f3f7ff]")}>
                     <TableCell>
-                      <p className="font-medium">{campaign.name}</p>
-                      <p className="text-xs text-muted-foreground">{campaign.businessName}</p>
+                      {saved ? (
+                        <Link href={`/links/${row.id}`} className="font-medium text-[#0057ff] hover:underline">
+                          {row.name}
+                        </Link>
+                      ) : (
+                        <p className="font-medium">{row.name}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {row.businessName} · {row.paid ? "Paid" : "Unpaid"}
+                      </p>
                     </TableCell>
                     <TableCell>{row.sources.map((source) => SOURCE_META[source].label).join(" + ")}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(row.visitors)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(row.leads)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(row.customers)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatMoney(row.spend)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatPercent(row.leadRate)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.spend == null ? "—" : formatMoney(row.spend)}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {row.cpl == null ? "—" : formatMoneyCents(row.cpl)}
                     </TableCell>
@@ -203,22 +416,53 @@ export function DashboardView() {
             </TableBody>
             <TableFooter>
               <TableRow>
-                <TableCell colSpan={2}>All sample campaigns</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(summarize(stats, "all").visitors)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(summarize(stats, "all").leads)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(summarize(stats, "all").customers)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(summarize(stats, "all").spend)}</TableCell>
+                <TableCell colSpan={2}>{filtering ? "Filtered total" : "All campaigns"}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(tableTotals.visitors)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(tableTotals.leads)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(tableTotals.customers)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatPercent(tableTotals.leadRate)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(tableTotals.spend)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {summarize(stats, "all").cpl == null ? "—" : formatMoneyCents(summarize(stats, "all").cpl!)}
+                  {tableTotals.cpl == null ? "—" : formatMoneyCents(tableTotals.cpl)}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(summarize(stats, "all").revenue)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatRoas(summarize(stats, "all").roas)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(tableTotals.revenue)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatRoas(tableTotals.roas)}</TableCell>
               </TableRow>
             </TableFooter>
           </Table>
           <p className="px-4 pt-3 text-xs text-muted-foreground">
-            Demo data. Nothing here is connected to Meta, Google, or a live ad account.
+            Simulated data. Sample ad spend is not reported by Facebook, Instagram, or Google. ROAS uses paid revenue divided by recorded spend. Unpaid campaigns are left out of that ratio. UTM parameters do not identify every person who clicked.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Landing pages</CardTitle>
+          <CardDescription>Where the simulated visits arrived. Each campaign uses one sample page.</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Landing page</TableHead>
+                <TableHead>Campaign</TableHead>
+                <TableHead className="text-right">Visits</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pages.map((page) => (
+                <TableRow key={page.path}>
+                  <TableCell className="font-mono text-xs">{page.path}</TableCell>
+                  <TableCell>
+                    <p>{page.name}</p>
+                    <p className="text-xs text-muted-foreground">{page.businessName}</p>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(page.visitors)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
@@ -229,7 +473,7 @@ export function DashboardView() {
         </CardHeader>
         <CardContent className="px-0">
           {recent.length === 0 ? (
-            <p className="px-4 text-sm text-muted-foreground">No leads in this view yet. Simulate one from the presenter bar.</p>
+            <p className="px-4 text-sm text-muted-foreground">No leads in this view yet.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -255,7 +499,7 @@ export function DashboardView() {
                     }}
                   >
                     <TableCell className="font-medium">{leadName(lead)}</TableCell>
-                    <TableCell>{getCampaign(lead.campaignId).shortName}</TableCell>
+                    <TableCell>{campaignTitle(state.links, lead.campaignId)}</TableCell>
                     <TableCell>{STATUS_META[lead.status].short}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatMoney(lead.value)}</TableCell>
                   </TableRow>
@@ -265,6 +509,15 @@ export function DashboardView() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function Filter({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{label}</span>
+      {children}
     </div>
   )
 }

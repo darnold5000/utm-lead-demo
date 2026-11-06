@@ -11,21 +11,26 @@ import {
 import {
   convertNextLead,
   createLead,
-  incrementVisit,
   markJourney,
+  recordArrival,
+  saveTrackedLink,
   selectView,
   setLeadStatus,
+  setLeadValue,
   simulateLead,
   simulateVisit,
   withNotice,
 } from "@/lib/demo-actions"
+import { getCampaign, isCampaignId } from "@/lib/campaigns"
 import { createInitialState } from "@/lib/seed"
+import { DEMO_STORAGE_KEY, readDemoState, writeDemoState } from "@/lib/storage"
 import type {
-  CampaignId,
+  Arrival,
   DemoData,
   JourneyStage,
   LeadStatus,
   Source,
+  TrackedLink,
   ViewId,
 } from "@/lib/types"
 
@@ -34,7 +39,7 @@ type FormLeadInput = {
   lastName: string
   email: string
   phone: string
-  campaignId: CampaignId
+  campaignId: string
   source: Source
   value: number
   note: string | null
@@ -45,6 +50,15 @@ type FormLeadInput = {
   utmTerm?: string | null
   countVisit: boolean
   id: string
+  sessionId?: string | null
+}
+
+type ArrivalInput = {
+  id: string
+  campaignId: string
+  source: Source
+  utm: Arrival["utm"]
+  landingPath: string
 }
 
 type DemoContextValue = {
@@ -56,8 +70,11 @@ type DemoContextValue = {
   convertNextLead: () => void
   reset: () => void
   setLeadStatus: (id: string, status: LeadStatus) => void
+  setLeadValue: (id: string, value: number) => void
+  saveLink: (link: TrackedLink) => void
   openLead: (id: string | null) => void
   markJourney: (stage: JourneyStage) => void
+  recordArrival: (input: ArrivalInput) => void
   addFormLead: (input: FormLeadInput) => void
 }
 
@@ -65,6 +82,20 @@ const DemoContext = createContext<DemoContextValue | null>(null)
 
 export function DemoProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DemoData>(createInitialState)
+  const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => {
+    const saved = readDemoState()
+    queueMicrotask(() => {
+      if (saved) setState(saved)
+      setHydrated(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
+    writeDemoState(state)
+  }, [hydrated, state])
 
   useEffect(() => {
     if (!state.notice) return
@@ -85,29 +116,58 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       simulateVisit: () => setState((current) => simulateVisit(current)),
       simulateLead: () => setState((current) => simulateLead(current)),
       convertNextLead: () => setState((current) => convertNextLead(current)),
-      reset: () =>
+      reset: () => {
+        localStorage.removeItem(DEMO_STORAGE_KEY)
         setState(
           withNotice(
             createInitialState(),
             "Demo reset. Sample visits, leads, and revenue are restored.",
           ),
-        ),
+        )
+      },
       setLeadStatus: (id, status) =>
         setState((current) => setLeadStatus(current, id, status)),
+      setLeadValue: (id, value) => setState((current) => setLeadValue(current, id, value)),
+      saveLink: (link) => setState((current) => saveTrackedLink(current, link)),
       openLead: (id) => setState((current) => ({ ...current, openLeadId: id })),
       markJourney: (stage) => setState((current) => markJourney(current, stage)),
+      recordArrival: (input) => setState((current) => recordArrival(current, input)),
       addFormLead: (input) =>
         setState((current) => {
           const visited = input.countVisit
-            ? incrementVisit(current, input.campaignId, input.source)
+            ? recordArrival(
+                current,
+                {
+                  id: input.sessionId || `visit-${crypto.randomUUID()}`,
+                  campaignId: input.campaignId,
+                  source: input.source,
+                  utm: {
+                    source: input.utmSource || input.source,
+                    medium: input.utmMedium || "referral",
+                    campaign: input.utmCampaign || input.campaignId,
+                    content: input.utmContent || "form",
+                    term: input.utmTerm ?? null,
+                  },
+                  landingPath: isCampaignId(input.campaignId)
+                    ? `/lp/${getCampaign(input.campaignId).slug}`
+                    : "/visit",
+                },
+                { notify: false },
+              )
             : current
-          const stage: JourneyStage =
-            visited.journeyStage === "ad" ? "visit" : visited.journeyStage
-          return createLead({ ...visited, journeyStage: stage }, input).state
+          return createLead(visited, input).state
         }),
     }),
     [state],
   )
+
+  if (!hydrated) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[#f4f6f8] px-6 text-sm text-[#5c6370]">
+        Loading simulated demo…
+      </div>
+    )
+  }
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>
 }

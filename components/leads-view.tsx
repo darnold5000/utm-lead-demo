@@ -12,9 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { getCampaign } from "@/lib/campaigns"
 import { formatDay, formatMoney, leadName } from "@/lib/format"
 import { SOURCE_META, STATUS_META } from "@/lib/labels"
+import { campaignDetail } from "@/lib/traffic"
 import { visibleLeads } from "@/lib/metrics"
 import type { LeadStatus } from "@/lib/types"
 import { cn } from "cn"
@@ -35,7 +35,7 @@ export function LeadsView() {
     return visibleLeads(state.leads, state.view).filter((lead) => {
       if (status !== "all" && lead.status !== status) return false
       if (!needle) return true
-      const campaign = getCampaign(lead.campaignId)
+      const campaign = campaignDetail(state.links, lead.campaignId)
       const haystack = [
         leadName(lead),
         lead.email,
@@ -48,7 +48,7 @@ export function LeadsView() {
         .toLowerCase()
       return haystack.includes(needle)
     })
-  }, [query, state.leads, state.view, status])
+  }, [query, state.leads, state.links, state.view, status])
 
   useEffect(() => {
     if (!state.highlightLeadId) return
@@ -102,7 +102,7 @@ export function LeadsView() {
         <div className="rounded-xl border bg-white px-4 py-10 text-center">
           <p className="font-medium">No leads match.</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Clear the search or simulate a new lead for the campaign selected above.
+            Clear the search to see the sample leads.
           </p>
           {query || status !== "all" ? (
             <Button
@@ -134,7 +134,7 @@ export function LeadsView() {
             </TableHeader>
             <TableBody>
               {leads.map((lead) => {
-                const campaign = getCampaign(lead.campaignId)
+                const campaign = campaignDetail(state.links, lead.campaignId)
                 const highlighted = lead.id === state.highlightLeadId
                 return (
                   <TableRow

@@ -1,3 +1,4 @@
+import { CONTENT_POSTS } from "@/lib/content-posts"
 import { CAMPAIGNS, DEMO_ANCHOR_DAY, DEMO_DAY_COUNT, getCampaign } from "@/lib/campaigns"
 import { addDays } from "@/lib/format"
 import { utmFor } from "@/lib/utm"
@@ -99,6 +100,7 @@ function buildCampaignLeads(
       value: item.value,
       day: days[dayIndex],
       note: null,
+      sessionId: null,
       utm: utmFor(campaign, campaign.source),
     }
     return lead
@@ -189,5 +191,8 @@ export function createInitialState(): DemoData {
     notice: null,
     noticeSeq: 0,
     simIndex: 0,
+    arrivals: [],
+    activeSessionId: null,
+    links: CONTENT_POSTS,
   }
 }
